@@ -1,61 +1,77 @@
-import React from 'react';
-import Navbar from './components/Navbar';
-import Hero from './components/Hero';
-import ProblemSection from './components/ProblemSection';
-import FeaturesSection from './components/FeaturesSection';
-import WorkflowSection from './components/WorkflowSection';
-import VerificationDashboard from './components/VerificationDashboard';
-import CourseForm from './components/CourseForm';
-import TechTrustSection from './components/TechTrustSection';
-import ImpactSection from './components/ImpactSection';
-import CTASection from './components/CTASection';
-import Footer from './components/Footer';
+// src/App.jsx
+import { BrowserRouter, Routes, Route, useNavigate } from 'react-router-dom';
+import { useEffect } from 'react';
+import { AppProvider, useApp } from './context/AppContext';
+import ToastContainer from './components/common/ToastContainer';
+import AuthModal from './components/common/AuthModal';
 
-export default function App() {
-  const scrollToCreateCourse = () => {
-    const el = document.getElementById('create-course');
-    if (el) {
-      el.scrollIntoView({ behavior: 'smooth' });
-    }
-  };
+import LandingPage         from './pages/LandingPage';
+import DashboardPage       from './pages/DashboardPage';
+import CreateCoursePage    from './pages/CreateCoursePage';
+import GenerationPage      from './pages/GenerationPage';
+import CourseOverviewPage  from './pages/CourseOverviewPage';
+import CourseWorkspacePage from './pages/CourseWorkspacePage';
+import SlideEditorPage     from './pages/SlideEditorPage';
+import VerificationPage    from './pages/VerificationPage';
+import ExercisesPage       from './pages/ExercisesPage';
+import QuizPage            from './pages/QuizPage';
+import NotFoundPage        from './pages/NotFoundPage';
+
+/**
+ * RouterBridge: Rendered inside BrowserRouter so useNavigate is available.
+ * It wires up the navigate function into AppContext so AuthModal can navigate.
+ */
+function RouterBridge() {
+  const navigate = useNavigate();
+  const { authModalOpen, closeAuthModal } = useApp();
 
   return (
-    <div className="min-h-screen bg-[#060913] text-slate-100 selection:bg-violet-500 selection:text-white font-sans">
-      {/* Sticky Navigation */}
-      <Navbar onOpenCreateCourse={scrollToCreateCourse} />
+    <>
+      <AuthModal
+        isOpen={authModalOpen}
+        onClose={closeAuthModal}
+        onNavigate={navigate}
+      />
+    </>
+  );
+}
 
-      {/* Main Content Sections */}
-      <main>
-        {/* Hero Section with Live Product Preview */}
-        <Hero onOpenCreateCourse={scrollToCreateCourse} />
+export default function App() {
+  return (
+    <AppProvider>
+      <BrowserRouter>
+        {/* RouterBridge must be inside BrowserRouter to access useNavigate */}
+        <RouterBridge />
 
-        {/* Problem vs Solution Section */}
-        <ProblemSection />
+        <Routes>
+          {/* Landing */}
+          <Route path="/"                                      element={<LandingPage />} />
 
-        {/* 10 Core Features Grid */}
-        <FeaturesSection />
+          {/* Course Creation Flow */}
+          <Route path="/create"                                element={<CreateCoursePage />} />
+          <Route path="/generate"                              element={<GenerationPage />} />
 
-        {/* 4-Step Pipeline Workflow */}
-        <WorkflowSection />
+          {/* Course Library */}
+          <Route path="/dashboard"                             element={<DashboardPage />} />
 
-        {/* Verification Engine Interactive Dashboard */}
-        <VerificationDashboard />
+          {/* New unified Course Workspace (/course/:courseId and /course/:courseId/:section) */}
+          <Route path="/course/:courseId"                      element={<CourseWorkspacePage />} />
+          <Route path="/course/:courseId/:section"             element={<CourseWorkspacePage />} />
 
-        {/* Interactive Course Creation Form */}
-        <CourseForm />
+          {/* Legacy Studio routes — kept for backward-compat so existing links don't break */}
+          <Route path="/studio/:courseId"                      element={<CourseOverviewPage />} />
+          <Route path="/studio/:courseId/generate"             element={<GenerationPage />} />
+          <Route path="/studio/:courseId/slides"               element={<SlideEditorPage />} />
+          <Route path="/studio/:courseId/verification"         element={<VerificationPage />} />
+          <Route path="/studio/:courseId/exercises"            element={<ExercisesPage />} />
+          <Route path="/studio/:courseId/quiz"                 element={<QuizPage />} />
 
-        {/* Supported Runtimes & Trust Principles */}
-        <TechTrustSection />
+          {/* 404 Fallback */}
+          <Route path="*"                                      element={<NotFoundPage />} />
+        </Routes>
 
-        {/* Qualitative Impact & Benefits */}
-        <ImpactSection />
-
-        {/* Final Call to Action */}
-        <CTASection onOpenCreateCourse={scrollToCreateCourse} />
-      </main>
-
-      {/* Footer with Sponsorship Attribution */}
-      <Footer />
-    </div>
+        <ToastContainer />
+      </BrowserRouter>
+    </AppProvider>
   );
 }
