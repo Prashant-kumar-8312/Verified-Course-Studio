@@ -1,106 +1,344 @@
+/**
+ * AI Routes
+ * All AI generation endpoints — supports both authenticated and guest users.
+ * Guest users can generate; auth is required only for saving to Supabase.
+ */
 
 import express from "express";
+import { getSupabase } from "../config/supabase.js";
 import { requireAuth } from "../middleware/auth.js";
-import { supabase } from "../config/supabase.js";
+import {
+  generateCourse,
+  generateSlides,
+  generateTrainerNotes,
+  generateCodeExamples,
+  generateExercises,
+  generateQuiz,
+  generateCheatSheet,
+  generateVerificationReview,
+} from "../Services/featureGenerators.js";
+import { getConfiguredProviders } from "../Services/aiOrchestrator.js";
 
 const router = express.Router();
 
-// POST /api/ai/generate-course
-router.post("/generate-course", requireAuth, async (req, res) => {
-  try {
-    const { generateCourse } = await import("../Services/aiServices.js");
+// ─── Helper: validate request body fields ─────────────────────────────────────
 
+function requireString(val, name, maxLen = 500) {
+  if (typeof val !== "string" || !val.trim()) throw new Error(`${name} is required`);
+  if (val.length > maxLen) throw new Error(`${name} must be at most ${maxLen} characters`);
+  return val.trim();
+}
+
+// ─── GET /api/ai/providers — show which providers are configured ───────────────
+
+router.get("/providers", (req, res) => {
+  const configured = getConfiguredProviders();
+  res.json({
+    configured,
+    count: configured.length,
+    parallelAvailable: configured.length > 1,
+  });
+});
+
+// ─── POST /api/ai/generate-course ─────────────────────────────────────────────
+
+router.post("/generate-course", async (req, res) => {
+  try {
     const {
       topic,
       student_level = "Beginner",
       duration_minutes = 60,
-      language = "English"
+      language = "English",
+      parallel = false,
     } = req.body;
 
-    // Validate inputs
-    if (
-      typeof topic !== "string" ||
-      !topic.trim() ||
-      topic.trim().length > 200
-    ) {
-      return res.status(400).json({
-        error: "Topic is required and must be at most 200 characters"
-      });
-    }
+    requireString(topic, "topic", 300);
 
-    const allowedLevels = [
-      "Beginner",
-      "Intermediate",
-      "Advanced"
-    ];
-
+    const allowedLevels = ["Beginner", "Intermediate", "Advanced"];
     if (!allowedLevels.includes(student_level)) {
-      return res.status(400).json({
-        error: "Level must be Beginner, Intermediate, or Advanced"
-      });
+      return res.status(400).json({ error: "Level must be Beginner, Intermediate, or Advanced" });
+    }
+    if (!Number.isInteger(duration_minutes) || duration_minutes < 15 || duration_minutes > 600) {
+      return res.status(400).json({ error: "Duration must be between 15 and 600 minutes" });
     }
 
-    if (
-      !Number.isInteger(duration_minutes) ||
-      duration_minutes < 15 ||
-      duration_minutes > 600
-    ) {
-      return res.status(400).json({
-        error: "Duration must be between 15 and 600 minutes"
-      });
-    }
-
-    if (
-      typeof language !== "string" ||
-      !language.trim() ||
-      language.length > 50
-    ) {
-      return res.status(400).json({
-        error: "Please provide a valid language"
-      });
-    }
-
-    // Generate course with OpenAI
-    const generatedCourse = await generateCourse({
+    const { content, providerMeta } = await generateCourse({
       topic: topic.trim(),
       studentLevel: student_level,
       durationMinutes: duration_minutes,
-      language: language.trim()
+      language: language.trim(),
+      parallel: !!parallel,
     });
 
-    // Save the generated course for the logged-in user
-    const { data, error } = await supabase
-      .from("courses")
-      .insert({
-        user_id: req.user.id,
-        title: generatedCourse.title,
-        topic: topic.trim(),
-        student_level,
-        duration_minutes,
-        language: language.trim(),
-        content: generatedCourse
-      })
-      .select()
-      .single();
+    // Save to Supabase only if user is authenticated
+    let savedCourse = null;
+    const authHeader = req.headers.authorization;
+    if (authHeader?.startsWith("Bearer ")) {
+      try {
+        const supabase = getSupabase();
+        const token = authHeader.slice(7);
+        const { data: userData } = await supabase.auth.getUser(token);
+        if (userData?.user) {
+          const { data, error } = await supabase
+            .from("courses")
+            .insert({
+              user_id: userData.user.id,
+              title: content.title,
+              topic: topic.trim(),
+              student_level,
+              duration_minutes,
+              language: language.trim(),
+              content,
+            })
+            .select()
+            .single();
 
-    if (error) {
-      console.error("Save generated course failed:", error.message);
-
-      return res.status(500).json({
-        error: "Course was generated but could not be saved"
-      });
+          if (!error) savedCourse = data;
+          else console.warn("Save course failed (non-blocking):", error.message);
+        }
+      } catch (saveErr) {
+        console.warn("Could not save to DB (non-blocking):", saveErr.message);
+      }
     }
 
     return res.status(201).json({
-      message: "Course generated and saved successfully",
-      course: data
+      message: "Course generated successfully",
+      content,
+      savedCourse,
+      providerMeta: {
+        used: providerMeta.used,
+        all: providerMeta.all.map((r) => ({
+          provider: r.provider,
+          status: r.status,
+          durationMs: r.durationMs,
+          error: r.error,
+        })),
+      },
     });
-  } catch (error) {
-    console.error("Course generation failed:", error.message);
+  } catch (err) {
+    console.error("generate-course error:", err.message);
+    return res.status(500).json({ error: err.message || "Course generation failed" });
+  }
+});
 
-    return res.status(500).json({
-      error: "Course generation failed. Check the backend logs."
+// ─── POST /api/ai/generate-slides ─────────────────────────────────────────────
+
+router.post("/generate-slides", async (req, res) => {
+  try {
+    const { title, description, modules, language, slide_count = 12, parallel = false } = req.body;
+    requireString(title, "title", 300);
+
+    const { content, providerMeta } = await generateSlides({
+      title,
+      description: description || "",
+      modules: Array.isArray(modules) ? modules : [],
+      language: language || "English",
+      slideCount: Math.min(Math.max(parseInt(slide_count) || 12, 5), 30),
+      parallel: !!parallel,
     });
+
+    // Optionally save slides to DB if authenticated
+    const authHeader = req.headers.authorization;
+    if (authHeader?.startsWith("Bearer ") && req.body.course_id) {
+      try {
+        const supabase = getSupabase();
+        const token = authHeader.slice(7);
+        const { data: userData } = await supabase.auth.getUser(token);
+        if (userData?.user) {
+          await supabase
+            .from("courses")
+            .update({ slides: content.slides })
+            .eq("id", req.body.course_id)
+            .eq("user_id", userData.user.id);
+        }
+      } catch (e) {
+        console.warn("Could not save slides (non-blocking):", e.message);
+      }
+    }
+
+    return res.json({
+      message: "Slides generated",
+      slides: content.slides,
+      providerMeta: { used: providerMeta.used },
+    });
+  } catch (err) {
+    console.error("generate-slides error:", err.message);
+    return res.status(500).json({ error: err.message || "Slide generation failed" });
+  }
+});
+
+// ─── POST /api/ai/generate-notes ──────────────────────────────────────────────
+
+router.post("/generate-notes", async (req, res) => {
+  try {
+    const { title, modules, language, parallel = false } = req.body;
+    requireString(title, "title", 300);
+
+    const { content, providerMeta } = await generateTrainerNotes({
+      title,
+      modules: Array.isArray(modules) ? modules : [],
+      language: language || "English",
+      parallel: !!parallel,
+    });
+
+    return res.json({
+      message: "Trainer notes generated",
+      notes: content.notes,
+      providerMeta: { used: providerMeta.used },
+    });
+  } catch (err) {
+    console.error("generate-notes error:", err.message);
+    return res.status(500).json({ error: err.message || "Notes generation failed" });
+  }
+});
+
+// ─── POST /api/ai/generate-code ───────────────────────────────────────────────
+
+router.post("/generate-code", async (req, res) => {
+  try {
+    const { title, modules, language, runtime, parallel = false } = req.body;
+    requireString(title, "title", 300);
+    requireString(language, "language", 50);
+
+    const { content, providerMeta } = await generateCodeExamples({
+      title,
+      modules: Array.isArray(modules) ? modules : [],
+      language,
+      runtime: runtime || language,
+      parallel: !!parallel,
+    });
+
+    return res.json({
+      message: "Code examples generated",
+      examples: content.examples,
+      providerMeta: { used: providerMeta.used },
+    });
+  } catch (err) {
+    console.error("generate-code error:", err.message);
+    return res.status(500).json({ error: err.message || "Code generation failed" });
+  }
+});
+
+// ─── POST /api/ai/generate-exercises ──────────────────────────────────────────
+
+router.post("/generate-exercises", async (req, res) => {
+  try {
+    const { title, modules, language, student_level = "Beginner", parallel = false } = req.body;
+    requireString(title, "title", 300);
+
+    const { content, providerMeta } = await generateExercises({
+      title,
+      modules: Array.isArray(modules) ? modules : [],
+      language: language || "English",
+      studentLevel: student_level,
+      parallel: !!parallel,
+    });
+
+    return res.json({
+      message: "Exercises generated",
+      exercises: content.exercises,
+      providerMeta: { used: providerMeta.used },
+    });
+  } catch (err) {
+    console.error("generate-exercises error:", err.message);
+    return res.status(500).json({ error: err.message || "Exercise generation failed" });
+  }
+});
+
+// ─── POST /api/ai/generate-quiz ───────────────────────────────────────────────
+
+router.post("/generate-quiz", async (req, res) => {
+  try {
+    const { title, modules, language, question_count = 10, parallel = false } = req.body;
+    requireString(title, "title", 300);
+
+    const { content, providerMeta } = await generateQuiz({
+      title,
+      modules: Array.isArray(modules) ? modules : [],
+      language: language || "English",
+      questionCount: Math.min(Math.max(parseInt(question_count) || 10, 3), 30),
+      parallel: !!parallel,
+    });
+
+    return res.json({
+      message: "Quiz generated",
+      questions: content.questions,
+      providerMeta: { used: providerMeta.used },
+    });
+  } catch (err) {
+    console.error("generate-quiz error:", err.message);
+    return res.status(500).json({ error: err.message || "Quiz generation failed" });
+  }
+});
+
+// ─── POST /api/ai/generate-cheatsheet ─────────────────────────────────────────
+
+router.post("/generate-cheatsheet", async (req, res) => {
+  try {
+    const { title, modules, language, parallel = false } = req.body;
+    requireString(title, "title", 300);
+
+    const { content, providerMeta } = await generateCheatSheet({
+      title,
+      modules: Array.isArray(modules) ? modules : [],
+      language: language || "English",
+      parallel: !!parallel,
+    });
+
+    return res.json({
+      message: "Cheat sheet generated",
+      sections: content.sections,
+      providerMeta: { used: providerMeta.used },
+    });
+  } catch (err) {
+    console.error("generate-cheatsheet error:", err.message);
+    return res.status(500).json({ error: err.message || "Cheat sheet generation failed" });
+  }
+});
+
+// ─── POST /api/ai/generate-verification ───────────────────────────────────────
+
+router.post("/generate-verification", async (req, res) => {
+  try {
+    const { title, course_content, language } = req.body;
+    requireString(title, "title", 300);
+
+    const { content, providerMeta } = await generateVerificationReview({
+      title,
+      courseContent: course_content || {},
+      language: language || "English",
+    });
+
+    return res.json({
+      message: "Verification complete",
+      structuralChecks: content.structuralChecks,
+      aiReview: content.aiReview,
+      providerMeta: { used: providerMeta.used },
+    });
+  } catch (err) {
+    console.error("generate-verification error:", err.message);
+    return res.status(500).json({ error: err.message || "Verification failed" });
+  }
+});
+
+// ─── GET /api/courses/:id — Load saved course (requires auth) ─────────────────
+
+router.get("/course/:id", requireAuth, async (req, res) => {
+  try {
+    const supabase = getSupabase();
+    const { data, error } = await supabase
+      .from("courses")
+      .select("*")
+      .eq("id", req.params.id)
+      .eq("user_id", req.user.id)
+      .maybeSingle();
+
+    if (error) return res.status(500).json({ error: "Could not load course" });
+    if (!data) return res.status(404).json({ error: "Course not found" });
+
+    return res.json({ course: data });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
   }
 });
 

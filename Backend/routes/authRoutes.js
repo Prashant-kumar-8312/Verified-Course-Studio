@@ -63,7 +63,7 @@ router.post("/login", async (req, res) => {
     if (
       typeof email !== "string" ||
       typeof password !== "string" ||
-      !email.trim() || 
+      !email.trim() ||
       !password
     ) {
       return res.status(400).json({
