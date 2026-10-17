@@ -3,7 +3,7 @@ import "dotenv/config";
 import { GoogleGenAI } from "@google/genai";
 
 const apiKey = process.env.GEMINI_API_KEY;
-const model = process.env.GEMINI_MODEL || "gemini-2.5-flash";
+const model = process.env.GEMINI_MODEL || "gemini-3.8-flash";
 
 if (!apiKey) {
   throw new Error("Missing GEMINI_API_KEY in Backend/.env");
