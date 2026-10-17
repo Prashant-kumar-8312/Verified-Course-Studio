@@ -1,5 +1,4 @@
-// src/pages/DashboardPage.jsx
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Plus, Search, BookOpen, Clock, ShieldCheck, ShieldAlert, Loader2, Trash2, ArrowRight } from 'lucide-react';
 import { mockCourses } from '../data/mockCourses';
@@ -7,6 +6,7 @@ import Header from '../components/layout/Header';
 import Footer from '../components/layout/Footer';
 import Modal from '../components/common/Modal';
 import { useApp } from '../context/AppContext';
+import { apiGetCourses } from '../services/api';
 
 const statusLabels = {
   completed:  { label: 'Completed',  cls: 'badge-green' },
@@ -146,22 +146,65 @@ function CourseCard({ course, onOpen, onDelete }) {
 }
 
 export default function DashboardPage() {
-  const [courses, setCourses]     = useState(mockCourses);
+  const [courses, setCourses] = useState(() => {
+    try {
+      const savedRaw = localStorage.getItem('vcs_saved_courses');
+      const saved = savedRaw ? JSON.parse(savedRaw) : [];
+      const map = new Map();
+      saved.forEach(c => map.set(c.id, c));
+      mockCourses.forEach(c => {
+        if (!map.has(c.id)) map.set(c.id, c);
+      });
+      return Array.from(map.values());
+    } catch {
+      return mockCourses;
+    }
+  });
+
   const [search, setSearch]       = useState('');
   const [filterStatus, setFilter] = useState('all');
   const [deleteTarget, setDelete] = useState(null);
   const navigate = useNavigate();
   const { addToast } = useApp();
 
+  useEffect(() => {
+    let isMounted = true;
+    apiGetCourses()
+      .then(res => {
+        if (isMounted && res?.courses && Array.isArray(res.courses)) {
+          setCourses(prev => {
+            const map = new Map();
+            res.courses.forEach(c => map.set(c.id, c));
+            prev.forEach(c => {
+              if (!map.has(c.id)) map.set(c.id, c);
+            });
+            return Array.from(map.values());
+          });
+        }
+      })
+      .catch(() => {});
+    return () => { isMounted = false; };
+  }, []);
+
   const filtered = courses.filter(c => {
-    const matchSearch = c.title.toLowerCase().includes(search.toLowerCase()) ||
-                        c.topic.toLowerCase().includes(search.toLowerCase());
+    const matchSearch = (c.title || '').toLowerCase().includes(search.toLowerCase()) ||
+                        (c.topic || '').toLowerCase().includes(search.toLowerCase());
     const matchFilter = filterStatus === 'all' || c.status === filterStatus;
     return matchSearch && matchFilter;
   });
 
   const handleDelete = () => {
-    setCourses(prev => prev.filter(c => c.id !== deleteTarget.id));
+    setCourses(prev => {
+      const updated = prev.filter(c => c.id !== deleteTarget.id);
+      try {
+        const savedRaw = localStorage.getItem('vcs_saved_courses');
+        if (savedRaw) {
+          const saved = JSON.parse(savedRaw).filter(c => c.id !== deleteTarget.id);
+          localStorage.setItem('vcs_saved_courses', JSON.stringify(saved));
+        }
+      } catch {}
+      return updated;
+    });
     addToast(`"${deleteTarget.title}" deleted.`, 'info');
     setDelete(null);
   };
@@ -260,7 +303,7 @@ export default function DashboardPage() {
               <CourseCard
                 key={c.id}
                 course={c}
-                onOpen={c => navigate(`/studio/${c.id}`)}
+                onOpen={c => navigate(`/course/${c.id}`)}
                 onDelete={setDelete}
               />
             ))}
