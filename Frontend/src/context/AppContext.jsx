@@ -28,7 +28,7 @@ export function AppProvider({ children }) {
     };
     try {
       sessionStorage.setItem('vcs_guest_session', JSON.stringify(session));
-    } catch (e) {}
+    } catch (e) { }
     setGuestSession(session);
     return session;
   }, []);
@@ -36,7 +36,7 @@ export function AppProvider({ children }) {
   const clearGuestSession = useCallback(() => {
     try {
       sessionStorage.removeItem('vcs_guest_session');
-    } catch (e) {}
+    } catch (e) { }
     setGuestSession(null);
   }, []);
 
@@ -55,7 +55,7 @@ export function AppProvider({ children }) {
       const updated = { ...(prev || {}), ...data, updatedAt: new Date().toISOString() };
       try {
         sessionStorage.setItem('vcs_draft_course', JSON.stringify(updated));
-      } catch (e) {}
+      } catch (e) { }
       return updated;
     });
   }, []);
@@ -63,7 +63,7 @@ export function AppProvider({ children }) {
   const clearDraftCourse = useCallback(() => {
     try {
       sessionStorage.removeItem('vcs_draft_course');
-    } catch (e) {}
+    } catch (e) { }
     setDraftCourse(null);
   }, []);
 
@@ -78,7 +78,7 @@ export function AppProvider({ children }) {
       if (typeof window !== 'undefined' && window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches) {
         return 'light';
       }
-    } catch (e) {}
+    } catch (e) { }
     return 'dark';
   });
 
@@ -86,7 +86,7 @@ export function AppProvider({ children }) {
     setThemeState(newTheme);
     try {
       localStorage.setItem('vcs_theme', newTheme);
-    } catch (e) {}
+    } catch (e) { }
   }, []);
 
   const toggleTheme = useCallback(() => {
@@ -94,7 +94,7 @@ export function AppProvider({ children }) {
       const next = prev === 'dark' ? 'light' : 'dark';
       try {
         localStorage.setItem('vcs_theme', next);
-      } catch (e) {}
+      } catch (e) { }
       return next;
     });
   }, []);
@@ -124,7 +124,7 @@ export function AppProvider({ children }) {
       };
       mediaQuery.addEventListener('change', handleChange);
       return () => mediaQuery.removeEventListener('change', handleChange);
-    } catch (e) {}
+    } catch (e) { }
   }, []);
 
   const addToast = useCallback((message, type = 'info', duration = 3500) => {
