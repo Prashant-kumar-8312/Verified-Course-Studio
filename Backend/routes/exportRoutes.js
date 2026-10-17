@@ -16,7 +16,7 @@ router.get("/courses/:id/pptx", requireAuth, async (req, res) => {
       .from("courses")
       .select("*")
       .eq("id", courseId)
-      .eq("user_id", req.user.id)
+      .or(`user_id.eq.${req.user.id},user_id.is.null`)
       .maybeSingle();
 
     if (error) {

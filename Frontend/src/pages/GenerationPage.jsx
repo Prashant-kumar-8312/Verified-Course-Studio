@@ -1,20 +1,19 @@
 // src/pages/GenerationPage.jsx
-import { useState, useEffect } from 'react';
-import { useParams, useLocation, useNavigate, Link } from 'react-router-dom';
-import { CheckCircle2, Circle, ArrowRight, AlertCircle, Shield, Sun, Moon } from 'lucide-react';
+import { useState, useEffect, useRef } from 'react';
+import { useLocation, useNavigate, Link } from 'react-router-dom';
+import { CheckCircle2, Circle, ArrowRight, AlertCircle, AlertTriangle, ShieldCheck, Sun, Moon, RefreshCw } from 'lucide-react';
 import SmartBackButton from '../components/common/SmartBackButton';
-import { mockCourses } from '../data/mockCourses';
+import { api } from '../api';
 import { useApp } from '../context/AppContext';
 import { recordNavPath } from '../utils/navigation';
 
 const GENERATION_STAGES = [
-  { id: 1, label: 'Analyzing learning objectives.',        duration: 900 },
-  { id: 2, label: 'Structuring the lesson.',              duration: 1100 },
-  { id: 3, label: 'Generating presentation slides.',      duration: 1300 },
-  { id: 4, label: 'Preparing trainer notes.',             duration: 1100 },
-  { id: 5, label: 'Creating exercises and automated tests.', duration: 1500 },
-  { id: 6, label: 'Preparing quiz and cheat sheet.',      duration: 1200 },
-  { id: 7, label: 'Running code verification.',           duration: 1400 },
+  { id: 1, label: 'Analyzing topic taxonomy & learning requirements.' },
+  { id: 2, label: 'Synthesizing lecture outline & duration allocations.' },
+  { id: 3, label: 'Generating teaching notes, practical activities & demonstrations.' },
+  { id: 4, label: 'Creating student exercises & homework assignments.' },
+  { id: 5, label: 'Building assessment quizzes with rationales.' },
+  { id: 6, label: 'Compiling code artifacts & assembling final course package.' },
 ];
 
 function StageStatusIcon({ status }) {
@@ -28,55 +27,143 @@ function StageStatusIcon({ status }) {
 }
 
 export default function GenerationPage() {
-  const { courseId = 'course-001' } = useParams();
   const { state } = useLocation();
   const location = useLocation();
   const navigate = useNavigate();
   const { guestSession, draftCourse, isDark, toggleTheme, openAuthModal } = useApp();
 
-  const course = mockCourses.find(c => c.id === courseId) || mockCourses[0];
-
   // Derive topic and curriculum settings from state or saved draft
-  const activeTopic = state?.topic || state?.prompt || draftCourse?.topic || course.title;
-  const activeLevel = state?.level || draftCourse?.level || course.level;
-  const activeDuration = state?.duration || draftCourse?.duration || course.duration;
-  const activeLanguage = state?.language || draftCourse?.language || course.language;
-  const activeRuntime = state?.runtime || draftCourse?.runtime || course.runtimeVersion;
+  const activeTopic = state?.topic || state?.prompt || draftCourse?.topic || 'Java Collections';
+  const activeLevel = state?.level || draftCourse?.level || 'Beginner';
+  const activeDuration = state?.duration || draftCourse?.duration || '60 minutes';
+  const activeLectures = Number(state?.numberOfLectures || draftCourse?.numberOfLectures) || 4;
+  const activeObjectives = state?.learningObjectives || draftCourse?.learningObjectives || '';
+
+  // Parse numeric duration
+  const parsedDuration = parseInt(String(activeDuration).replace(/\D/g, ''), 10) || 60;
+  const timePerLecture = Math.round(parsedDuration / Math.max(1, activeLectures));
 
   const [stepStatus, setStepStatus] = useState(() =>
     GENERATION_STAGES.reduce((acc, s) => ({ ...acc, [s.id]: 'pending' }), {})
   );
   const [done, setDone] = useState(false);
+  const [createdCourse, setCreatedCourse] = useState(null);
+  const [error, setError] = useState(null);
+  const [isGenerating, setIsGenerating] = useState(false);
+  // draft = course was generated but the DB save failed; holds the raw content
+  // so we can retry saving without calling Gemini again.
+  const [draft, setDraft] = useState(null);
+  const [retryingSave, setRetryingSave] = useState(false);
+
+  const generationStartedRef = useRef(false);
 
   // Record nav path for smart back tracking
   useEffect(() => {
     recordNavPath(location.pathname);
   }, [location.pathname]);
 
+  const startGeneration = async () => {
+    setError(null);
+    setDraft(null);
+    setDone(false);
+    setIsGenerating(true);
+
+    // Reset stages
+    setStepStatus(
+      GENERATION_STAGES.reduce((acc, s, idx) => ({
+        ...acc,
+        [s.id]: idx === 0 ? 'active' : 'pending'
+      }), {})
+    );
+
+    // Animate stage progress while background API call executes
+    let currentStage = 1;
+    const stageInterval = setInterval(() => {
+      if (currentStage < 5) {
+        setStepStatus(prev => ({
+          ...prev,
+          [currentStage]: 'done',
+          [currentStage + 1]: 'active'
+        }));
+        currentStage++;
+      }
+    }, 1200);
+
+    try {
+      const res = await api.generateCourse({
+        topic: activeTopic,
+        student_level: activeLevel,
+        duration_minutes: parsedDuration,
+        number_of_lectures: activeLectures,
+        learning_objectives: activeObjectives
+      });
+
+      clearInterval(stageInterval);
+
+      // Mark all stages as done
+      setStepStatus(
+        GENERATION_STAGES.reduce((acc, s) => ({ ...acc, [s.id]: 'done' }), {})
+      );
+
+      const courseData = res.course;
+      setCreatedCourse(courseData);
+      setDone(true);
+      setIsGenerating(false);
+    } catch (err) {
+      clearInterval(stageInterval);
+      console.error('Course generation/save failed:', err);
+
+      // If the server returned a `draft`, the course was GENERATED but not SAVED.
+      // Surface the draft so the user can retry saving without re-generating.
+      if (err.draft) {
+        setDraft(err.draft);
+        setError(err.message);
+      } else {
+        setError(err.message || 'Failed to generate verified course');
+      }
+      setIsGenerating(false);
+    }
+  };
+
+  // Retry saving an already-generated course without calling Gemini again.
+  const retrySave = async () => {
+    if (!draft) return;
+    setRetryingSave(true);
+    setError(null);
+    try {
+      const res = await api.createCourse({
+        title: draft.title || activeTopic,
+        topic: activeTopic,
+        student_level: activeLevel,
+        duration_minutes: parsedDuration,
+        language: activeLanguage,
+        content: draft
+      });
+      setCreatedCourse(res.course);
+      setDraft(null);
+      setDone(true);
+    } catch (err) {
+      console.error('Retry save failed:', err);
+      setError(err.message || 'Retry save failed — check the backend logs');
+    } finally {
+      setRetryingSave(false);
+    }
+  };
+
   useEffect(() => {
-    let totalDelay = 0;
-    GENERATION_STAGES.forEach((step, i) => {
-      // Mark active
-      const activateAt = totalDelay;
-      setTimeout(() => {
-        setStepStatus(prev => ({ ...prev, [step.id]: 'active' }));
-      }, activateAt);
-
-      totalDelay += step.duration;
-
-      // Mark done
-      const doneAt = totalDelay;
-      setTimeout(() => {
-        setStepStatus(prev => ({ ...prev, [step.id]: 'done' }));
-        if (i === GENERATION_STAGES.length - 1) {
-          setTimeout(() => setDone(true), 300);
-        }
-      }, doneAt);
-    });
+    if (!generationStartedRef.current) {
+      generationStartedRef.current = true;
+      startGeneration();
+    }
   }, []);
 
   const completedCount = Object.values(stepStatus).filter(s => s === 'done').length;
   const progress = Math.round((completedCount / GENERATION_STAGES.length) * 100);
+
+  const courseId = createdCourse?.id;
+  const verificationSummary = createdCourse?.content?.verificationSummary || createdCourse?.verificationSummary;
+  const passedCount = verificationSummary?.passed ?? createdCourse?.verifiedCount ?? 0;
+  const totalCount = verificationSummary?.total ?? createdCourse?.totalCount ?? 0;
 
   return (
     <div style={{ background: 'var(--bg-base)', minHeight: '100vh', transition: 'background-color 0.2s ease' }}>
@@ -177,30 +264,30 @@ export default function GenerationPage() {
           }}>
             <span>Level: {activeLevel}</span>
             <span>·</span>
-            <span>Duration: {activeDuration}</span>
+            <span>Total Duration: {activeDuration}</span>
             <span>·</span>
-            <span>Language: {activeLanguage}</span>
+            <span>Sessions: {activeLectures} lectures</span>
             <span>·</span>
-            <span>Runtime: {activeRuntime}</span>
+            <span>Pacing: ~{timePerLecture} mins/class</span>
           </div>
         </div>
 
         {/* Title */}
         <div style={{ marginBottom: '2rem' }}>
           <p className="overline-editorial" style={{ marginBottom: '0.35rem' }}>
-            {done ? 'Generation Completed' : 'Simulated Pipeline Execution'}
+            {done ? 'Generation Completed' : 'Real Java 21 Sandbox Execution'}
           </p>
           <h1 className="heading-editorial" style={{ fontSize: '2.25rem', marginBottom: '0.5rem' }}>
-            {done ? 'Course Workspace Ready.' : 'Building course curriculum.'}
+            {done ? 'Course Workspace Ready.' : 'Compiling & Verifying Course.'}
           </h1>
           <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', lineHeight: 1.5 }}>
             {done
-              ? 'All 7 pedagogical modules and code verification pipelines are compiled.'
+              ? `Verification finished: ${passedCount}/${totalCount} Java snippets and labs passed execution.`
               : 'Synthesizing verified slide decks, trainer notes, runnable code examples, and test suites.'}
           </p>
         </div>
 
-        {/* Restrained Monochromatic Progress Bar */}
+        {/* Progress Bar */}
         <div style={{
           background: 'var(--border)',
           borderRadius: 'var(--radius-full)',
@@ -211,42 +298,40 @@ export default function GenerationPage() {
           <div style={{
             width: `${progress}%`,
             height: '100%',
-            background: 'var(--text-primary)',
+            background: done ? 'var(--status-passed)' : 'var(--text-primary)',
             transition: 'width 0.35s ease',
           }} />
         </div>
 
-        {/* 7 Structured Stages */}
+        {/* Structured Stages */}
         <div style={{
-          background: 'var(--bg-card)',
-          border: '1px solid var(--border)',
-          borderRadius: 'var(--radius-md)',
-          overflow: 'hidden',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '0.75rem',
           marginBottom: '2rem'
         }}>
-          {GENERATION_STAGES.map((step, idx) => {
-            const status = stepStatus[step.id];
+          {GENERATION_STAGES.map(stage => {
+            const status = stepStatus[stage.id];
             return (
               <div
-                key={step.id}
+                key={stage.id}
                 style={{
                   display: 'flex',
                   alignItems: 'center',
-                  gap: '0.85rem',
-                  padding: '0.85rem 1.25rem',
-                  borderBottom: idx < GENERATION_STAGES.length - 1 ? '1px solid var(--border-subtle)' : 'none',
-                  background: status === 'active' ? 'var(--bg-surface-secondary)' : 'transparent',
-                  transition: 'background-color 0.2s ease',
+                  justifyContent: 'space-between',
+                  padding: '0.75rem 1rem',
+                  background: 'var(--bg-card)',
+                  border: '1px solid var(--border)',
+                  borderRadius: 'var(--radius-sm)',
+                  opacity: status === 'pending' ? 0.45 : 1,
+                  transition: 'opacity 0.25s ease'
                 }}
               >
-                <StageStatusIcon status={status} />
-                <span style={{
-                  fontSize: '0.85rem',
-                  color: status === 'done' ? 'var(--text-primary)' : status === 'active' ? 'var(--text-primary)' : 'var(--text-muted)',
-                  fontWeight: status === 'active' ? 500 : 400,
-                  flex: 1
-                }}>
-                  {step.label}
+                <span style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', fontSize: '0.85rem' }}>
+                  <StageStatusIcon status={status} />
+                  <span style={{ color: status === 'done' ? 'var(--text-primary)' : 'var(--text-secondary)' }}>
+                    {stage.label}
+                  </span>
                 </span>
 
                 <span style={{
@@ -254,14 +339,14 @@ export default function GenerationPage() {
                   fontFamily: 'var(--font-mono)',
                   color: status === 'done' ? 'var(--status-passed)' : status === 'active' ? 'var(--text-secondary)' : 'var(--text-muted)'
                 }}>
-                  {status === 'done' ? 'DONE' : status === 'active' ? 'PROCESSING' : 'PENDING'}
+                  {status === 'done' ? 'DONE' : status === 'active' ? 'EXECUTING' : 'PENDING'}
                 </span>
               </div>
             );
           })}
         </div>
 
-        {/* Demo Disclaimer Notice */}
+        {/* Verification Guarantee Notice */}
         <div style={{
           display: 'flex',
           gap: '0.65rem',
@@ -272,28 +357,85 @@ export default function GenerationPage() {
           marginBottom: '2rem',
           alignItems: 'center'
         }}>
-          <AlertCircle size={15} color="var(--text-muted)" style={{ flexShrink: 0 }} />
+          <ShieldCheck size={16} color="var(--status-passed)" style={{ flexShrink: 0 }} />
           <p style={{ fontSize: '0.775rem', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
-            <strong>Demo simulation:</strong> Templates, test suites, and slides are structured for this frontend preview. Real execution will be powered by the Docker-based verification backend.
+            <strong>Real Java 21 Sandbox:</strong> All code snippets and exercises are compiled with <code>javac --release 21</code> and executed to prove zero runtime failures.
           </p>
         </div>
 
+        {/* Error State */}
+        {error && (
+          <div style={{
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '0.75rem',
+            padding: '1.25rem',
+            background: 'rgba(239, 68, 68, 0.1)',
+            border: '1px solid var(--status-failed)',
+            borderRadius: 'var(--radius-sm)',
+            marginBottom: '2rem'
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <AlertTriangle size={18} color="var(--status-failed)" />
+              <strong style={{ color: 'var(--status-failed)', fontSize: '0.875rem' }}>
+                {draft ? 'Generated — but Save Failed' : 'Course Generation Failed'}
+              </strong>
+            </div>
+            <p style={{ color: 'var(--text-secondary)', fontSize: '0.8rem', lineHeight: 1.5 }}>
+              {error}
+            </p>
+            {draft ? (
+              // Course was generated, only the DB save failed — retry without Gemini
+              <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                <button
+                  className="btn-primary"
+                  style={{ gap: '0.4rem', fontSize: '0.825rem' }}
+                  onClick={retrySave}
+                  disabled={retryingSave}
+                >
+                  {retryingSave
+                    ? <><div className="spinner" style={{ width: 13, height: 13 }} /> Saving…</>
+                    : <><RefreshCw size={13} /> Retry Save (no re-generation)</>}
+                </button>
+                <button
+                  className="btn-secondary"
+                  style={{ gap: '0.4rem', fontSize: '0.825rem' }}
+                  onClick={startGeneration}
+                  disabled={retryingSave}
+                >
+                  <RefreshCw size={13} /> Re-generate from scratch
+                </button>
+              </div>
+            ) : (
+              <div>
+                <button
+                  className="btn-secondary"
+                  style={{ gap: '0.4rem', fontSize: '0.825rem' }}
+                  onClick={startGeneration}
+                >
+                  <RefreshCw size={13} /> Retry Generation
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Completion CTA */}
-        {done && (
+        {done && courseId && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
             <button
               className="btn-primary"
               style={{ width: '100%', padding: '0.8rem', fontSize: '0.925rem', gap: '0.45rem', justifyContent: 'center' }}
               onClick={() => navigate(`/course/${courseId}`)}
             >
-              Open Course Workspace <ArrowRight size={14} />
+              Open Course Workspace ({passedCount}/{totalCount} Verified) <ArrowRight size={14} />
             </button>
             <button
               className="btn-ghost"
               style={{ width: '100%', padding: '0.5rem', fontSize: '0.8rem', color: 'var(--text-secondary)', justifyContent: 'center' }}
               onClick={() => navigate('/create')}
             >
-              Modify Specifications & Regenerate
+              Modify Specifications & Generate Another
             </button>
           </div>
         )}

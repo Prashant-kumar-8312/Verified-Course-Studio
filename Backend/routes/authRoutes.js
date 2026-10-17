@@ -1,19 +1,7 @@
-
 import express from "express";
-import { createClient } from "@supabase/supabase-js";
+import { supabase } from "../config/supabase.js";
 
 const router = express.Router();
-
-const authClient = createClient(
-  process.env.SUPABASE_URL,
-  process.env.SUPABASE_PUBLISHABLE_KEY,
-  {
-    auth: {
-      persistSession: false,
-      autoRefreshToken: false
-    }
-  }
-);
 
 // Register
 router.post("/register", async (req, res) => {
@@ -31,7 +19,7 @@ router.post("/register", async (req, res) => {
       });
     }
 
-    const { data, error } = await authClient.auth.signUp({
+    const { data, error } = await supabase.auth.signUp({
       email: email.trim(),
       password
     });
@@ -71,11 +59,10 @@ router.post("/login", async (req, res) => {
       });
     }
 
-    const { data, error } =
-      await authClient.auth.signInWithPassword({
-        email: email.trim(),
-        password
-      });
+    const { data, error } = await supabase.auth.signInWithPassword({
+      email: email.trim(),
+      password
+    });
 
     if (error || !data.session) {
       return res.status(401).json({
