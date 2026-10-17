@@ -15,6 +15,17 @@ const authClient = createClient(
   }
 );
 
+const adminClient = createClient(
+  process.env.SUPABASE_URL,
+  process.env.SUPABASE_SECRET_KEY,
+  {
+    auth: {
+      persistSession: false,
+      autoRefreshToken: false
+    }
+  }
+);
+
 // Register
 router.post("/register", async (req, res) => {
   try {
@@ -31,20 +42,30 @@ router.post("/register", async (req, res) => {
       });
     }
 
-    const { data, error } = await authClient.auth.signUp({
+    const { data: createdUser, error: createError } =
+      await adminClient.auth.admin.createUser({
+        email: email.trim(),
+        password,
+        email_confirm: true
+      });
+
+    if (createError) {
+      return res.status(400).json({ error: createError.message });
+    }
+
+    const { data, error } = await authClient.auth.signInWithPassword({
       email: email.trim(),
       password
     });
 
     if (error) {
-      return res.status(400).json({ error: error.message });
+      console.error("Registration sign-in error:", error.message);
+      return res.status(500).json({ error: "Account created but sign-in failed" });
     }
 
     return res.status(201).json({
-      message: data.session
-        ? "Registration successful"
-        : "Registration received. Check your email if confirmation is required.",
-      user: data.user,
+      message: "Registration successful",
+      user: data.user || createdUser.user,
       session: data.session
     });
   } catch (error) {
@@ -79,7 +100,7 @@ router.post("/login", async (req, res) => {
 
     if (error || !data.session) {
       return res.status(401).json({
-        error: "Invalid credentials or email confirmation required"
+        error: "Invalid email or password"
       });
     }
 
