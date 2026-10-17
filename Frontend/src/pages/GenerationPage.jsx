@@ -53,6 +53,8 @@ export default function GenerationPage() {
   const [done, setDone] = useState(false);
   const [errorMsg, setErrorMsg] = useState(null);
   const [providerMeta, setProviderMeta] = useState(null);
+    const [generatedContent, setGeneratedContent] = useState(null);
+    const activeObjectives = state?.learningObjectives || draftCourse?.learningObjectives || '';
   const [generatedCourseId, setGeneratedCourseId] = useState(routeCourseId || 'course-001');
   const [isRetrying, setIsRetrying] = useState(false);
 
@@ -93,9 +95,11 @@ export default function GenerationPage() {
         student_level: activeLevel,
         duration_minutes: durationMinutes,
         language: activeLanguage,
+        learning_objectives: activeObjectives,
       });
 
       const courseContent = courseResponse.content;
+      setGeneratedContent(courseContent);
       const courseTitle = courseContent.title || activeTopic;
 
       // 2. Generate Initial Slide Deck
@@ -440,6 +444,33 @@ export default function GenerationPage() {
             <Sparkles size={14} color="var(--accent-primary)" />
             <span>Generated using <strong>{providerMeta.used || 'Gemini'} AI Provider</strong></span>
           </div>
+        )}
+
+        {done && generatedContent && (
+          <section style={{
+            background: 'var(--bg-card)',
+            border: '1px solid var(--border)',
+            borderRadius: 'var(--radius-md)',
+            padding: '1.25rem 1.5rem',
+            marginBottom: '1.5rem'
+          }}>
+            <p className="overline-editorial" style={{ marginBottom: '0.35rem' }}>Generated Course</p>
+            <h2 style={{ fontSize: '1.15rem', color: 'var(--text-primary)', marginBottom: '0.5rem' }}>
+              {generatedContent.title || activeTopic}
+            </h2>
+            <p style={{ fontSize: '0.825rem', color: 'var(--text-secondary)', lineHeight: 1.55, marginBottom: '1rem' }}>
+              {generatedContent.description || 'Your course content is ready.'}
+            </p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.45rem' }}>
+              {(generatedContent.modules || []).map((module, index) => (
+                <div key={`${module.title}-${index}`} style={{ display: 'flex', gap: '0.65rem', alignItems: 'baseline', fontSize: '0.8rem' }}>
+                  <span style={{ color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>{String(index + 1).padStart(2, '0')}</span>
+                  <span style={{ color: 'var(--text-primary)', fontWeight: 600 }}>{module.title}</span>
+                  <span style={{ color: 'var(--text-muted)' }}>{module.lessons?.length || 0} lessons</span>
+                </div>
+              ))}
+            </div>
+          </section>
         )}
 
         {/* Completion CTA */}

@@ -1,5 +1,5 @@
 // src/pages/CourseWorkspacePage.jsx
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { useParams, useNavigate, useLocation, Link } from 'react-router-dom';
 import {
   Presentation,
@@ -26,7 +26,10 @@ import {
   ExternalLink,
   AlertCircle,
   Sun,
-  Moon
+  Moon,
+  Loader2,
+  Play,
+  Square
 } from 'lucide-react';
 import { mockCourses } from '../data/mockCourses';
 import { mockSlides } from '../data/mockSlides';
@@ -37,7 +40,7 @@ import { highlightCode } from '../utils/codeHighlighter';
 import { useApp } from '../context/AppContext';
 import SmartBackButton from '../components/common/SmartBackButton';
 import { recordNavPath } from '../utils/navigation';
-import { downloadCoursePptx, apiGetCourse } from '../services/api';
+import { downloadCoursePptx, apiGetCourse, apiSpeak } from '../services/api';
 
 const SECTIONS = [
   { id: 'overview',     label: 'Overview',            icon: Layers },
@@ -67,6 +70,10 @@ export default function CourseWorkspacePage() {
   const [quizAnswers, setQuizAnswers] = useState({});
   const [showQuizRationale, setShowQuizRationale] = useState({});
   const [exportModal, setExportModal] = useState(null);
+  const [isSpeechLoading, setIsSpeechLoading] = useState(false);
+  const [isSpeaking, setIsSpeaking] = useState(false);
+  const speechAudioRef = useRef(null);
+  const speechUrlRef = useRef(null);
 
   // Match course from dbCourse, AppContext, sessionStorage, localStorage, or fallback
   const course = useMemo(() => {
@@ -196,6 +203,58 @@ export default function CourseWorkspacePage() {
   const activeSlide = slidesList[selectedSlideIndex] || slidesList[0];
   const activeExercise = exercisesList[selectedExerciseIndex] || exercisesList[0];
   const activeSnippet = snippetsList[selectedSnippetIndex] || snippetsList[0];
+
+  const stopSlideSpeech = () => {
+    speechAudioRef.current?.pause();
+    speechAudioRef.current = null;
+    if (speechUrlRef.current) {
+      URL.revokeObjectURL(speechUrlRef.current);
+      speechUrlRef.current = null;
+    }
+    setIsSpeaking(false);
+    setIsSpeechLoading(false);
+  };
+
+  const playSlideSpeech = async () => {
+    if (isSpeaking || isSpeechLoading) {
+      stopSlideSpeech();
+      return;
+    }
+
+    const narration = [
+      activeSlide.title,
+      activeSlide.body,
+      activeSlide.content?.join('. '),
+      activeSlide.trainerNotes,
+    ].filter(Boolean).join('. ');
+
+    if (!narration.trim()) {
+      addToast('This slide has no text to narrate.', 'warning');
+      return;
+    }
+
+    setIsSpeechLoading(true);
+    try {
+      const audioBlob = await apiSpeak(narration);
+      const audioUrl = URL.createObjectURL(audioBlob);
+      const audio = new Audio(audioUrl);
+      speechAudioRef.current = audio;
+      speechUrlRef.current = audioUrl;
+      audio.onended = stopSlideSpeech;
+      audio.onerror = () => {
+        stopSlideSpeech();
+        addToast('Audio playback failed.', 'warning');
+      };
+      await audio.play();
+      setIsSpeechLoading(false);
+      setIsSpeaking(true);
+    } catch (error) {
+      stopSlideSpeech();
+      addToast(error.message || 'Could not generate slide narration.', 'warning');
+    }
+  };
+
+  useEffect(() => () => stopSlideSpeech(), []);
 
 
   return (
@@ -619,13 +678,26 @@ export default function CourseWorkspacePage() {
                     Slide {activeSlide.number} of {slidesList.length}: {activeSlide.title}
                   </h2>
                 </div>
-                <Link
-                  to={`/studio/${courseId}/slides`}
-                  className="btn-secondary"
-                  style={{ fontSize: '0.8rem', gap: '0.4rem', textDecoration: 'none' }}
-                >
-                  <ExternalLink size={13} /> Open Full Slide Editor
-                </Link>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+                  <button
+                    type="button"
+                    className={isSpeaking ? 'btn-primary' : 'btn-secondary'}
+                    onClick={playSlideSpeech}
+                    disabled={isSpeechLoading}
+                    title={isSpeaking ? 'Stop slide narration' : 'Play slide narration'}
+                    style={{ fontSize: '0.8rem', gap: '0.4rem' }}
+                  >
+                    {isSpeechLoading ? <Loader2 size={13} className="spin" /> : isSpeaking ? <Square size={12} /> : <Play size={13} />}
+                    {isSpeechLoading ? 'Preparing audio...' : isSpeaking ? 'Stop narration' : 'Play narration'}
+                  </button>
+                  <Link
+                    to={`/studio/${courseId}/slides`}
+                    className="btn-secondary"
+                    style={{ fontSize: '0.8rem', gap: '0.4rem', textDecoration: 'none' }}
+                  >
+                    <ExternalLink size={13} /> Open Full Slide Editor
+                  </Link>
+                </div>
               </div>
 
               {/* 16:9 Presentation Canvas */}
