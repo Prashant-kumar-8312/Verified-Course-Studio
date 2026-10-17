@@ -3,7 +3,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useParams, useLocation, useNavigate, Link } from 'react-router-dom';
 import { CheckCircle2, Circle, ArrowRight, AlertCircle, Shield, Sun, Moon, Sparkles, RefreshCw } from 'lucide-react';
 import SmartBackButton from '../components/common/SmartBackButton';
-import { mockCourses } from '../data/mockCourses';
+import { api } from '../api';
 import { useApp } from '../context/AppContext';
 import { recordNavPath } from '../utils/navigation';
 import { apiGenerateCourse, apiGenerateSlides } from '../services/api';
@@ -200,6 +200,11 @@ export default function GenerationPage() {
   const completedCount = Object.values(stepStatus).filter(s => s === 'done').length;
   const progress = Math.round((completedCount / GENERATION_STAGES.length) * 100);
 
+  const courseId = createdCourse?.id;
+  const verificationSummary = createdCourse?.content?.verificationSummary || createdCourse?.verificationSummary;
+  const passedCount = verificationSummary?.passed ?? createdCourse?.verifiedCount ?? 0;
+  const totalCount = verificationSummary?.total ?? createdCourse?.totalCount ?? 0;
+
   return (
     <div style={{ background: 'var(--bg-base)', minHeight: '100vh', transition: 'background-color 0.2s ease' }}>
       {/* Top Header with Smart Back to /create */}
@@ -299,11 +304,11 @@ export default function GenerationPage() {
           }}>
             <span>Level: {activeLevel}</span>
             <span>·</span>
-            <span>Duration: {activeDuration}</span>
+            <span>Total Duration: {activeDuration}</span>
             <span>·</span>
-            <span>Language: {activeLanguage}</span>
+            <span>Sessions: {activeLectures} lectures</span>
             <span>·</span>
-            <span>Runtime: {activeRuntime}</span>
+            <span>Pacing: ~{timePerLecture} mins/class</span>
           </div>
         </div>
 
@@ -382,27 +387,28 @@ export default function GenerationPage() {
           }} />
         </div>
 
-        {/* 7 Structured Stages */}
+        {/* Structured Stages */}
         <div style={{
-          background: 'var(--bg-card)',
-          border: '1px solid var(--border)',
-          borderRadius: 'var(--radius-md)',
-          overflow: 'hidden',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '0.75rem',
           marginBottom: '2rem'
         }}>
-          {GENERATION_STAGES.map((step, idx) => {
-            const status = stepStatus[step.id];
+          {GENERATION_STAGES.map(stage => {
+            const status = stepStatus[stage.id];
             return (
               <div
-                key={step.id}
+                key={stage.id}
                 style={{
                   display: 'flex',
                   alignItems: 'center',
-                  gap: '0.85rem',
-                  padding: '0.85rem 1.25rem',
-                  borderBottom: idx < GENERATION_STAGES.length - 1 ? '1px solid var(--border-subtle)' : 'none',
-                  background: status === 'active' ? 'var(--bg-surface-secondary)' : 'transparent',
-                  transition: 'background-color 0.2s ease',
+                  justifyContent: 'space-between',
+                  padding: '0.75rem 1rem',
+                  background: 'var(--bg-card)',
+                  border: '1px solid var(--border)',
+                  borderRadius: 'var(--radius-sm)',
+                  opacity: status === 'pending' ? 0.45 : 1,
+                  transition: 'opacity 0.25s ease'
                 }}
               >
                 <StageStatusIcon status={status} />
@@ -473,8 +479,65 @@ export default function GenerationPage() {
           </section>
         )}
 
+        {/* Error State */}
+        {error && (
+          <div style={{
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '0.75rem',
+            padding: '1.25rem',
+            background: 'rgba(239, 68, 68, 0.1)',
+            border: '1px solid var(--status-failed)',
+            borderRadius: 'var(--radius-sm)',
+            marginBottom: '2rem'
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <AlertTriangle size={18} color="var(--status-failed)" />
+              <strong style={{ color: 'var(--status-failed)', fontSize: '0.875rem' }}>
+                {draft ? 'Generated — but Save Failed' : 'Course Generation Failed'}
+              </strong>
+            </div>
+            <p style={{ color: 'var(--text-secondary)', fontSize: '0.8rem', lineHeight: 1.5 }}>
+              {error}
+            </p>
+            {draft ? (
+              // Course was generated, only the DB save failed — retry without Gemini
+              <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                <button
+                  className="btn-primary"
+                  style={{ gap: '0.4rem', fontSize: '0.825rem' }}
+                  onClick={retrySave}
+                  disabled={retryingSave}
+                >
+                  {retryingSave
+                    ? <><div className="spinner" style={{ width: 13, height: 13 }} /> Saving…</>
+                    : <><RefreshCw size={13} /> Retry Save (no re-generation)</>}
+                </button>
+                <button
+                  className="btn-secondary"
+                  style={{ gap: '0.4rem', fontSize: '0.825rem' }}
+                  onClick={startGeneration}
+                  disabled={retryingSave}
+                >
+                  <RefreshCw size={13} /> Re-generate from scratch
+                </button>
+              </div>
+            ) : (
+              <div>
+                <button
+                  className="btn-secondary"
+                  style={{ gap: '0.4rem', fontSize: '0.825rem' }}
+                  onClick={startGeneration}
+                >
+                  <RefreshCw size={13} /> Retry Generation
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Completion CTA */}
-        {done && (
+        {done && courseId && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
             <button
               className="btn-primary"
@@ -488,7 +551,7 @@ export default function GenerationPage() {
               style={{ width: '100%', padding: '0.5rem', fontSize: '0.8rem', color: 'var(--text-secondary)', justifyContent: 'center' }}
               onClick={() => navigate('/create')}
             >
-              Modify Specifications & Regenerate
+              Modify Specifications & Generate Another
             </button>
           </div>
         )}

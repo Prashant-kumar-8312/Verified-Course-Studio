@@ -1,6 +1,5 @@
-
 import express from "express";
-import { createClient } from "@supabase/supabase-js";
+import { supabase } from "../config/supabase.js";
 
 const router = express.Router();
 
@@ -92,11 +91,10 @@ router.post("/login", async (req, res) => {
       });
     }
 
-    const { data, error } =
-      await authClient.auth.signInWithPassword({
-        email: email.trim(),
-        password
-      });
+    const { data, error } = await supabase.auth.signInWithPassword({
+      email: email.trim(),
+      password
+    });
 
     if (error || !data.session) {
       return res.status(401).json({
