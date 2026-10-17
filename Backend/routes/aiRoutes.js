@@ -49,6 +49,7 @@ router.post("/generate-course", async (req, res) => {
       student_level = "Beginner",
       duration_minutes = 60,
       language = "English",
+      learning_objectives = "",
       parallel = false,
     } = req.body;
 
@@ -67,6 +68,7 @@ router.post("/generate-course", async (req, res) => {
       studentLevel: student_level,
       durationMinutes: duration_minutes,
       language: language.trim(),
+      learningObjectives: learning_objectives,
       parallel: !!parallel,
     });
 

@@ -1,5 +1,6 @@
 // src/context/AppContext.jsx
 import { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import { clearAuthToken } from '../services/api';
 
 const AppContext = createContext(null);
 
@@ -89,7 +90,10 @@ export function AppProvider({ children }) {
     } catch (e) { }
   }, []);
 
-  const clearAuthSession = useCallback(() => setAuthSession(null), [setAuthSession]);
+  const clearAuthSession = useCallback(() => {
+    clearAuthToken();
+    setAuthSession(null);
+  }, [setAuthSession]);
 
   // Theme management with localStorage and OS preference detection
   const [theme, setThemeState] = useState(() => {

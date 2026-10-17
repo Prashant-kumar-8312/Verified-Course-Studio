@@ -7,6 +7,7 @@ import authRoutes from "./routes/authRoutes.js";
 
 import aiRoutes from "./routes/aiRoutes.js";
 import exportRoutes from "./routes/exportRoutes.js";
+import ttsRoutes from "./routes/ttsRoutes.js";
 import { requireAuth } from "./middleware/auth.js";
 
 const app = express();
@@ -30,6 +31,8 @@ app.use("/api/auth", authRoutes);
 app.use("/api/ai", aiRoutes);
 
 app.use("/api/export", exportRoutes);
+
+app.use("/api/tts", ttsRoutes);
 
 app.get("/api/me", requireAuth, (req, res) => {
   res.json({

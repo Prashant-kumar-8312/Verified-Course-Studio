@@ -134,14 +134,14 @@ export default function Header() {
                         </div>
                     )}
 
-                    {/* Start Creating button */}
+                    {/* Signup button */}
                     {!isAuthenticated && (
                         <button
                             className="btn-primary"
                             style={{ fontSize: '0.825rem', padding: '0.45rem 0.95rem' }}
                             onClick={openAuthModal}
                         >
-                            Get Started <ArrowRight size={13} />
+                            Signup <ArrowRight size={13} />
                         </button>
                     )}
                 </nav>
@@ -214,7 +214,7 @@ export default function Header() {
                                 openAuthModal();
                             }}
                         >
-                            Get Started <ArrowRight size={14} />
+                            Signup <ArrowRight size={14} />
                         </button>
                     )}
                 </div>
