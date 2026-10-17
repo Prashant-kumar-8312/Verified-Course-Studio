@@ -2,25 +2,8 @@ import "dotenv/config";
 import { verifySnippet, verifyExercise } from "./verifier.js";
 import { generateVerifiedSnippet } from "./verifiedGenerator.js";
 
-/**
- * Concurrency limiter to run async tasks with a limit (e.g. 2 concurrent verifications).
- */
-async function mapConcurrent(items, limit, fn) {
-  const results = [];
-  const executing = [];
-  for (const item of items) {
-    const p = Promise.resolve().then(() => fn(item));
-    results.push(p);
-    if (limit <= items.length) {
-      const e = p.then(() => executing.splice(executing.indexOf(e), 1));
-      executing.push(e);
-      if (executing.length >= limit) {
-        await Promise.race(executing);
-      }
-    }
-  }
-  return Promise.all(results);
-}
+const apiKey = process.env.GEMINI_API_KEY;
+const model = process.env.GEMINI_MODEL || "gemini-3.8-flash";
 
 /**
  * Distribute total duration among lectures so the exact sum equals durationMinutes.

@@ -639,6 +639,36 @@ router.post("/:courseId/lectures/:lectureNumber/regenerate", requireAuth, async 
   }
 });
 
+// GET /api/courses/:id
+router.get("/:id", async (req, res) => {
+  try {
+    if (!supabase) {
+      return res.status(503).json({ error: "Database not connected" });
+    }
+
+    const { id } = req.params;
+    const { data: course, error } = await supabase
+      .from("courses")
+      .select("*")
+      .eq("id", id)
+      .maybeSingle();
+
+    if (error) {
+      console.error("Fetch course by id error:", error.message);
+      return res.status(500).json({ error: "Could not fetch course" });
+    }
+
+    if (!course) {
+      return res.status(404).json({ error: "Course not found" });
+    }
+
+    return res.json({ course });
+  } catch (error) {
+    console.error("Fetch course by id exception:", error.message);
+    return res.status(500).json({ error: "Internal server error" });
+  }
+});
+
 // GET /api/courses/:courseId/lessons
 router.get("/:courseId/lessons", requireAuth, getLessons);
 
@@ -649,3 +679,4 @@ router.get("/:courseId/quiz", requireAuth, getQuiz);
 router.post("/:courseId/quiz/evaluate", requireAuth, evaluateQuiz);
 
 export default router;
+

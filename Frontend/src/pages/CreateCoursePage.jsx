@@ -103,6 +103,7 @@ export default function CreateCoursePage() {
       learningObjectives: learningObjectives.trim(),
       fileAttached,
       fileName: attachedFileName,
+      courseId: `course-${Date.now().toString(36)}`,
       timestamp: Date.now()
     };
 

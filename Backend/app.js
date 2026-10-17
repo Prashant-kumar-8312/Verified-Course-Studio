@@ -6,7 +6,7 @@ import courseRoutes from "./routes/courseRoutes.js";
 import authRoutes from "./routes/authRoutes.js";
 import aiRoutes from "./routes/aiRoutes.js";
 import exportRoutes from "./routes/exportRoutes.js";
-import verifyRoutes from "./routes/verifyRoutes.js";
+import ttsRoutes from "./routes/ttsRoutes.js";
 import { requireAuth } from "./middleware/auth.js";
 
 const app = express();
@@ -72,8 +72,9 @@ function getJavaVersion() {
   });
 }
 
-app.get("/api/health", async (_req, res) => {
-  const java = await getJavaVersion();
+app.use("/api/tts", ttsRoutes);
+
+app.get("/api/me", requireAuth, (req, res) => {
   res.json({
     status: "ok",
     timestamp: new Date().toISOString(),
